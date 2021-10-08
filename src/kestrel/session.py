@@ -305,7 +305,7 @@ class Session(object):
                 vt = var_times
                 if iname in vt:
                     fvar = f'{iname} v{vt[iname]}'  # link from latest variable
-                    g.add_edge(fvar, step_name, stroke_dasharray='5 5')
+                    g.add_edge(fvar, step_name)
                     from_link_added = True
             if not from_link_added:
                 g.add_edge('*', step_name)
