@@ -21,6 +21,8 @@
 import functools
 import logging
 import itertools
+import json
+import networkx as nx
 from collections import OrderedDict
 
 from firepit.query import Aggregation, Group, Query, Table
@@ -31,7 +33,7 @@ from kestrel.semantics import get_entity_table, get_entity_type
 from kestrel.symboltable import new_var
 from kestrel.syntax.parser import get_all_input_var_names
 from kestrel.codegen.data import load_data, load_data_file, dump_data_to_file
-from kestrel.codegen.display import DisplayDataframe, DisplayDict
+from kestrel.codegen.display import DisplayDataframe, DisplayDict, DisplayHtml
 from kestrel.codegen.pattern import build_pattern, or_patterns, build_pattern_from_ids
 from kestrel.codegen.relations import (
     generic_relations,
@@ -178,8 +180,98 @@ def info(stmt, session):
     return None, DisplayDict(disp)
 
 
+execution_tracking_base_html = """<html>
+<table>
+  <thead>
+  <tr>
+    <th style="width:10%%;text-align:left;">#</th>
+    <th style="text-align:left;">Dependency Path</th>
+  </tr>
+  </thead>
+  <tbody id="paths">
+  </tbody>
+</table>
+<table>
+  <thead>
+  <tr>
+    <th style="width:30%%;text-align:left;">Step</th>
+    <th style="text-align:left;">Timestap</th>
+  </tr>
+  </thead>
+  <tbody id="timestamps">
+  </tbody>
+</table>
+<table>
+  <thead>
+  <tr>
+    <th style="width:30%%;text-align:left;">Variable</th>
+    <th style="text-align:left;">Summary</th>
+  </tr>
+  </thead>
+  <tbody id="vsummary">
+  </tbody>
+</table>
+<script>
+var step_count = JSON.parse('%s');
+var var_count = JSON.parse('%s');
+var step_dt = JSON.parse('%s');
+var var_dt = JSON.parse('%s');
+var paths = %s;
+var td_left = '<td style="text-align:left;">'
+for(const k in paths) {
+    var tr = "<tr>";
+    path = "";
+    for(const i in paths[k]) {
+        it = paths[k][i];
+        if (path.length > 0) path += ' -> ';
+        if (/^.+v\d+$/.test(it)) path += '('+it+')';
+        else path += it;
+    }
+    tr += td_left + (Number(k)+1) + "</td>" + td_left + path + "</td></tr>";
+    document.getElementById('paths').innerHTML += tr;
+}
+for(const k in step_dt) {
+    var tr = "<tr>";
+    tr += td_left + k + "</td>" + td_left + step_dt[k] + "</td></tr>";
+    document.getElementById('timestamps').innerHTML += tr;
+}
+for(const k in var_dt) {
+    var tr = "<tr>";
+    tr += td_left + k + "</td>" + td_left + var_dt[k] + "</td></tr>";
+    document.getElementById('vsummary').innerHTML += tr;
+}
+</script>
+</html>"""
+
+
 @_debug_logger
 def disp(stmt, session):
+    if stmt['input'] == '_' and session.execution_tracking:
+        g = session.execution_tracking['nx_tracking']
+        step_times = session.execution_tracking['step_times']
+        step_timestamp = session.execution_tracking['step_timestamp']
+        var_times = session.execution_tracking['var_times']
+        var_summary = session.execution_tracking['var_summary']
+        roots = []
+        leaves = []
+        for node in g.nodes:
+            if g.in_degree(node) == 0:  # it's a root
+                roots.append(node)
+            elif g.out_degree(node) == 0:  # it's a leaf
+                leaves.append(node)
+        allpaths = []
+        for root in roots:
+            for leaf in leaves:
+                for thepath in nx.all_simple_paths(g, root, leaf):
+                    allpaths.append(thepath)
+        template = session.execution_tracking.get('html_template') or execution_tracking_base_html
+        return None, DisplayHtml(template % (
+            json.dumps(step_times),
+            json.dumps(var_times),
+            json.dumps(step_timestamp),
+            json.dumps(var_summary),
+            allpaths))
+
     if session.symtable[stmt["input"]].entity_table:
         content = session.store.lookup(
             get_entity_table(stmt["input"], session.symtable),

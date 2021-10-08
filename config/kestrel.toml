@@ -10,6 +10,8 @@
 local_database_path = "local.db"
 cache_directory_prefix = "kestrel-session-" # under system temp directory
 show_execution_summary = true
+track_execution = false
+execution_tracking_diagram_html_template = "execution_tracking_diagram.txt"
 
 [language]
 default_variable = "_"

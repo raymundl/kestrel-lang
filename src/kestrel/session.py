@@ -56,6 +56,9 @@ import toml
 import time
 import math
 import lark
+import json
+import networkx as nx
+from collections import defaultdict
 from datetime import datetime
 
 from kestrel.exceptions import (
@@ -243,7 +246,81 @@ class Session(object):
         iso_ts_regex = r"\d{4}(-\d{2}(-\d{2}(T\d{2}(:\d{2}(:\d{2}Z?)?)?)?)?)?"
         self._iso_ts = re.compile(iso_ts_regex)
 
-    def execute(self, codeblock):
+        # Tracking executions, variables, and their dependencies
+        if self.config["session"].get("track_execution"):
+            self.execution_tracking = {
+                'nx_tracking': nx.DiGraph(),
+                'step_times': defaultdict(int),
+                'var_times': defaultdict(int),
+                'step_timestamp': {},
+                'var_summary': {}
+            }
+            self.execution_tracking['nx_tracking'].add_node('*')  # root node of all executions
+            tfile = self.config["session"].get("execution_tracking_diagram_html_template")
+            if tfile and os.path.exists(tfile):
+                with open(tfile) as f:
+                    self.execution_tracking['html_template'] = f.read()
+        else:
+            self.execution_tracking = None
+
+    def track_execution(self, ast, blockname=None):
+        if self.execution_tracking is None:
+            return  # no tracking
+        # update tracking graph
+        g = self.execution_tracking['nx_tracking']
+        step_times = self.execution_tracking['step_times']
+        step_timestamp = self.execution_tracking['step_timestamp']
+        var_times = self.execution_tracking['var_times']
+        var_summary = self.execution_tracking['var_summary']
+
+        # create execution node
+        cmds = []
+        input = []
+        output = []
+        for stmt in ast:
+            cmd = stmt.get('command')
+            if cmd != 'disp':
+                cmds.append((cmd, stmt.get('type')))
+                input_vars = get_all_input_var_names(stmt)
+                input.extend(input_vars)
+                output.append(stmt.get('output'))
+                if cmd == 'apply':
+                    output.append(input_vars[0])  # force "apply" to generate an output node
+        if cmds:
+            if blockname:
+                short_stmt = blockname
+            elif len(cmds) == 1 and cmds[0][1]:
+                cmd = cmds[0]
+                short_stmt = f'{cmd[0]} {cmd[1]}'  # eg. "get network-traffic"
+            else:
+                short_stmt = ', '.join([cmd[0] for cmd in cmds])  # eg. "apply, disp"
+            step_times[short_stmt] += 1
+            step_name = '%s t%s' % (short_stmt, step_times[short_stmt])
+            step_timestamp[step_name] = datetime.now().isoformat()
+            g.add_node(step_name)
+
+            # add input links
+            from_link_added = False
+            for iname in input:
+                vt = var_times
+                if iname in vt:
+                    fvar = f'{iname} v{vt[iname]}'  # link from latest variable
+                    g.add_edge(fvar, step_name, stroke_dasharray='5 5')
+                    from_link_added = True
+            if not from_link_added:
+                g.add_edge('*', step_name)
+
+            # create output nodes and links
+            for oname in output:
+                if oname != '_':
+                    var_times[oname] += 1
+                    output_name = '%s v%s' % (oname, var_times[oname])
+                    vs, _ = gen_variable_summary(oname, self.symtable[oname])
+                    var_summary[output_name] = ', '.join([f'{k}={vs[k]}' for k in vs])
+                    g.add_node(output_name)
+                    g.add_edge(step_name, output_name)
+
+    def execute(self, codeblock, blockname=None):
         """Execute a Kestrel code block.
 
         A Kestrel statement or multiple consecutive statements constitute a code
@@ -266,7 +343,9 @@ class Session(object):
             statement in the inputted code block.
         """
         ast = self.parse(codeblock)
-        return self._execute_ast(ast)
+        results = self._execute_ast(ast)
+        self.track_execution(ast, blockname)  # track executions after each execution if flag
+        return results
 
     def parse(self, codeblock):
         """Parse a Kestrel code block.
