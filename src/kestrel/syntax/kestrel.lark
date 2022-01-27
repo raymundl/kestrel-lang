@@ -10,7 +10,7 @@ start: statement*
 
 statement: VARIABLE "=" command
          | command
-         
+
 // "?" at the beginning will inline command
 ?command: get
         | find
@@ -24,10 +24,13 @@ statement: VARIABLE "=" command
         | save
         | new
         | merge
-       
+        | render
+
 merge: VARIABLE ("+" VARIABLE)*
 
 disp: "disp"i VARIABLE ("attr"i STIXPATHS)? ("limit"i INT)?
+
+render: "render"i RENDERABLE
 
 info: "info"i VARIABLE
 
@@ -85,6 +88,7 @@ REVERSED: "by"i
 COMMENT: /#.*/
 URI: PATH
 
+RENDERABLE: "*" | VARIABLE
 FUNCNAME: (MIN|MAX|SUM|AVG|COUNT|NUNIQUE)
 MIN: "min"i
 MAX: "max"i

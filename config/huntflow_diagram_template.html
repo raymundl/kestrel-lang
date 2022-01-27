@@ -1,0 +1,50 @@
+<canvas id="canvasID" width="1780" height="340"></canvas>
+<div id="info"></div>
+<script>
+var cjs = document.createElement('script')
+cjs.src = 'https://code.createjs.com/createjs-2015.05.21.min.js'
+cjs.addEventListener('load', () => {
+    var fjs = document.createElement('script')
+    fjs.src = 'https://prufer.surge.sh/flow.min.js'
+    fjs.addEventListener('load', () => {
+        var step_count = JSON.parse('%s');
+        var var_count = JSON.parse('%s');
+        var step_dt = JSON.parse('%s');
+        var var_dt = JSON.parse('%s');
+        var latest_vars = [];
+        for(const key in var_count) {
+            latest_vars.push(key + ' v' + var_count[key]);
+        }
+        var graph = new flowjs.DiGraph();
+        graph.addPaths(%s);
+        var flow = new flowjs.DiFlowChart("canvasID", graph);
+        flow.color = "white";
+        flow.itemRadius = 12;
+        flow.startX = flow.itemRadius;
+        var walker = new flowjs.GraphWalker(graph);
+        flow.draw();
+        walker.forEach(function(node){
+            item = flow.flowItems[node.id].flowItem;
+            item.fontSize = "9px";
+            if (node.id in var_dt) {
+                latest = 'v' + var_count[node.id]
+                if (latest_vars.includes(node.id)) item.background = "green";
+                else item.background = "gray";
+                item.circle.addEventListener("mouseover", function() {
+                    document.getElementById("info").innerHTML = var_dt[node.id];
+                })
+                item.refresh();
+            }
+            else if (node.id in step_dt) {
+                item.circle.addEventListener("mouseover", function() {
+                    document.getElementById("info").innerHTML = step_dt[node.id];
+                })
+                item.refresh();
+            }
+        }, this);
+        document.getElementById("canvasID").style.backgroundColor = "black";
+    })
+    document.body.appendChild(fjs)
+})
+document.body.appendChild(cjs)
+</script>

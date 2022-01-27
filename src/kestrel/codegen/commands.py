@@ -21,8 +21,10 @@
 import functools
 import logging
 import itertools
+import json
+import networkx as nx
 from collections import OrderedDict
-
+from pandas import DataFrame
 from firepit.query import Aggregation, Group, Query, Table
 
 from kestrel.utils import remove_empty_dicts, dedup_ordered_dicts
@@ -31,7 +33,7 @@ from kestrel.semantics import get_entity_table, get_entity_type
 from kestrel.symboltable import new_var
 from kestrel.syntax.parser import get_all_input_var_names
 from kestrel.codegen.data import load_data, load_data_file, dump_data_to_file
-from kestrel.codegen.display import DisplayDataframe, DisplayDict
+from kestrel.codegen.display import DisplayDataframe, DisplayDict, DisplayHtml
 from kestrel.codegen.pattern import build_pattern, or_patterns, build_pattern_from_ids
 from kestrel.codegen.relations import (
     generic_relations,
@@ -176,6 +178,58 @@ def info(stmt, session):
     )
 
     return None, DisplayDict(disp)
+
+
+@_debug_logger
+def render(stmt, session):
+    target = stmt['target']
+    if (target == '*') and session.execution_tracking:
+        g = session.execution_tracking['nx_tracking']
+        step_times = session.execution_tracking['step_times']
+        step_timestamp = session.execution_tracking['step_timestamp']
+        var_times = session.execution_tracking['var_times']
+        var_summary = session.execution_tracking['var_summary']
+        roots = []
+        leaves = []
+        for node in g.nodes:
+            if g.in_degree(node) == 0:  # it's a root
+                roots.append(node)
+            elif g.out_degree(node) == 0:  # it's a leaf
+                leaves.append(node)
+        allpaths = []
+        for root in roots:
+            for leaf in leaves:
+                for thepath in nx.all_simple_paths(g, root, leaf):
+                    allpaths.append(thepath)
+        template = session.execution_tracking.get('html_template') or\
+            'TEMPLATE NOT FOUND\nSTEP_TIMES: %s\nVAR_TIMES: %s\nSTEP_TT: %s\nVAR_SUMMARY: %s\nPATHS: %s'
+        return None, DisplayHtml(template % (
+            json.dumps(step_times),
+            json.dumps(var_times),
+            json.dumps(step_timestamp),
+            json.dumps(var_summary),
+            allpaths))
+    elif (target in session.symtable) and session.symtable[target].entity_table:
+        content = session.store.lookup(
+            get_entity_table(stmt["target"], session.symtable),
+        )
+        df = content if isinstance(content, DataFrame) else DataFrame(content)
+        errmsg = 'Variable "%s" not renderable' % stmt['target']  # default errmsg
+        if ('x_suspicious_score' in df) and ('command_line' in df):
+            chart = 'susp_scoring_chart'
+            df.drop_duplicates(subset=['name'], inplace=True)
+            template = session.html_template.get(chart)
+            if template:
+                names = df['name'].to_list()
+                score = df['x_suspicious_score'].to_list()
+                pairs = list(map(list, zip(names, score)))
+                return None, DisplayHtml(template % (pairs, 'Suspicious Score'))
+            else:
+                errmsg = 'Template for [%s] not found' % chart
+        return None, DisplayHtml(errmsg)
+    else:
+        errmsg = '"%s" not renderable' % stmt['target'] if session.execution_tracking else 'Tracking data not available'
+        return None, DisplayHtml(errmsg)
 
 
 @_debug_logger

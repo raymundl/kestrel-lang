@@ -59,6 +59,12 @@ class _PostParsing(Transformer):
             "limit": _extract_int(args),
         }
 
+    def render(self, args):
+        return {
+            "command": "render",
+            "target": _assert_and_extract_single("RENDERABLE", args)
+        }
+
     def get(self, args):
         datasource = _extract_datasource(args)
         packet = {
