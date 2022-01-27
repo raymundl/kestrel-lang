@@ -1,0 +1,24 @@
+<div id="chartContainer" style="height: 100%%; width: 100%%;"></div>
+<div id="info"></div>
+<script>
+var cjs = document.createElement('script')
+cjs.src = 'https://cdn.anychart.com/releases/8.11.0/js/anychart-base.min.js'
+cjs.addEventListener('load', () => {
+    var tjs = document.createElement('script')
+    tjs.src = 'https://cdn.anychart.com/releases/8.11.0/themes/dark_turquoise.min.js'
+    tjs.addEventListener('load', () => {
+        var data = {
+            header: ["Name", "Death toll"],
+            rows: %s
+        };
+        anychart.theme(anychart.themes.darkTurquoise);
+        var chart = anychart.bar();
+        chart.data(data);
+        chart.title("%s");
+        chart.container("chartContainer");
+        chart.draw();
+    })
+    document.body.appendChild(tjs)
+})
+document.body.appendChild(cjs)
+</script>

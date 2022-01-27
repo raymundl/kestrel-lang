@@ -10,8 +10,9 @@
 local_database_path = "local.db"
 cache_directory_prefix = "kestrel-session-" # under system temp directory
 show_execution_summary = true
-track_execution = false
-execution_tracking_diagram_html_template = "execution_tracking_diagram.txt"
+track_execution = true
+execution_tracking_diagram_html_template = "/Users/raymundl/.config/kestrel/templates/huntflow_diagram_template.html"
+susp_scoring_chart_html_template = "/Users/raymundl/.config/kestrel/templates/susp_scoring_template.html"
 
 [language]
 default_variable = "_"

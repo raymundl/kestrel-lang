@@ -251,6 +251,13 @@ class Session(object):
         iso_ts_regex = r"\d{4}(-\d{2}(-\d{2}(T\d{2}(:\d{2}(:\d{2}Z?)?)?)?)?)?"
         self._iso_ts = re.compile(iso_ts_regex)
 
+        # Templates for smart variable rendering
+        self.html_template = {}
+        tfile = self.config["session"].get("susp_scoring_chart_html_template")
+        if tfile and os.path.exists(tfile):
+            with open(tfile) as f:
+                self.html_template['susp_scoring_chart'] = f.read()
+
         # Tracking executions, variables, and their dependencies
         if self.config["session"].get("track_execution"):
             self.execution_tracking = {
@@ -284,7 +291,7 @@ class Session(object):
         output = []
         for stmt in ast:
             cmd = stmt.get('command')
-            if cmd != 'disp':
+            if cmd not in ['disp', 'render']:
                 cmds.append((cmd, stmt.get('type')))
                 input_vars = get_all_input_var_names(stmt)
                 input.extend(input_vars)

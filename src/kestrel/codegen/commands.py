@@ -24,7 +24,7 @@ import itertools
 import json
 import networkx as nx
 from collections import OrderedDict
-
+from pandas import DataFrame
 from firepit.query import Aggregation, Group, Query, Table
 
 from kestrel.utils import remove_empty_dicts, dedup_ordered_dicts
@@ -180,73 +180,10 @@ def info(stmt, session):
     return None, DisplayDict(disp)
 
 
-execution_tracking_base_html = """<html>
-<table>
-  <thead>
-  <tr>
-    <th style="width:10%%;text-align:left;">#</th>
-    <th style="text-align:left;">Dependency Path</th>
-  </tr>
-  </thead>
-  <tbody id="paths">
-  </tbody>
-</table>
-<table>
-  <thead>
-  <tr>
-    <th style="width:30%%;text-align:left;">Step</th>
-    <th style="text-align:left;">Timestap</th>
-  </tr>
-  </thead>
-  <tbody id="timestamps">
-  </tbody>
-</table>
-<table>
-  <thead>
-  <tr>
-    <th style="width:30%%;text-align:left;">Variable</th>
-    <th style="text-align:left;">Summary</th>
-  </tr>
-  </thead>
-  <tbody id="vsummary">
-  </tbody>
-</table>
-<script>
-var step_count = JSON.parse('%s');
-var var_count = JSON.parse('%s');
-var step_dt = JSON.parse('%s');
-var var_dt = JSON.parse('%s');
-var paths = %s;
-var td_left = '<td style="text-align:left;">'
-for(const k in paths) {
-    var tr = "<tr>";
-    path = "";
-    for(const i in paths[k]) {
-        it = paths[k][i];
-        if (path.length > 0) path += ' -> ';
-        if (/^.+v\d+$/.test(it)) path += '('+it+')';
-        else path += it;
-    }
-    tr += td_left + (Number(k)+1) + "</td>" + td_left + path + "</td></tr>";
-    document.getElementById('paths').innerHTML += tr;
-}
-for(const k in step_dt) {
-    var tr = "<tr>";
-    tr += td_left + k + "</td>" + td_left + step_dt[k] + "</td></tr>";
-    document.getElementById('timestamps').innerHTML += tr;
-}
-for(const k in var_dt) {
-    var tr = "<tr>";
-    tr += td_left + k + "</td>" + td_left + var_dt[k] + "</td></tr>";
-    document.getElementById('vsummary').innerHTML += tr;
-}
-</script>
-</html>"""
-
-
 @_debug_logger
-def disp(stmt, session):
-    if stmt['input'] == '_' and session.execution_tracking:
+def render(stmt, session):
+    target = stmt['target']
+    if (target == '*') and session.execution_tracking:
         g = session.execution_tracking['nx_tracking']
         step_times = session.execution_tracking['step_times']
         step_timestamp = session.execution_tracking['step_timestamp']
@@ -264,14 +201,39 @@ def disp(stmt, session):
             for leaf in leaves:
                 for thepath in nx.all_simple_paths(g, root, leaf):
                     allpaths.append(thepath)
-        template = session.execution_tracking.get('html_template') or execution_tracking_base_html
+        template = session.execution_tracking.get('html_template') or\
+            'TEMPLATE NOT FOUND\nSTEP_TIMES: %s\nVAR_TIMES: %s\nSTEP_TT: %s\nVAR_SUMMARY: %s\nPATHS: %s'
         return None, DisplayHtml(template % (
             json.dumps(step_times),
             json.dumps(var_times),
             json.dumps(step_timestamp),
             json.dumps(var_summary),
             allpaths))
+    elif (target in session.symtable) and session.symtable[target].entity_table:
+        content = session.store.lookup(
+            get_entity_table(stmt["target"], session.symtable),
+        )
+        df = content if isinstance(content, DataFrame) else DataFrame(content)
+        errmsg = 'Variable "%s" not renderable' % stmt['target']  # default errmsg
+        if ('x_suspicious_score' in df) and ('command_line' in df):
+            chart = 'susp_scoring_chart'
+            df.drop_duplicates(subset=['name'], inplace=True)
+            template = session.html_template.get(chart)
+            if template:
+                names = df['name'].to_list()
+                score = df['x_suspicious_score'].to_list()
+                pairs = list(map(list, zip(names, score)))
+                return None, DisplayHtml(template % (pairs, 'Suspicious Score'))
+            else:
+                errmsg = 'Template for [%s] not found' % chart
+        return None, DisplayHtml(errmsg)
+    else:
+        errmsg = '"%s" not renderable' % stmt['target'] if session.execution_tracking else 'Tracking data not available'
+        return None, DisplayHtml(errmsg)
 
+
+@_debug_logger
+def disp(stmt, session):
     if session.symtable[stmt["input"]].entity_table:
         content = session.store.lookup(
             get_entity_table(stmt["input"], session.symtable),
